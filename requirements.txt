@@ -1,9 +1,9 @@
 Flask==3.1.1
-scikit-learn==1.7.0
-pandas==2.0.3
-numpy==1.25.2
+scikit-learn==1.0.2  # חובה לשנות!
+pandas==1.5.3        # חובה לשנות!
+numpy==1.21.6        # חובה לשנות!
 joblib==1.5.1
 gunicorn==21.2.0
 setuptools==65.5.0
 wheel==0.41.2
-scipy==1.10.1  # זהו השינוי המהותי ביותר בפעם הזו!
+scipy==1.7.3
