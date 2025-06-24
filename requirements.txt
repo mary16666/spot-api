@@ -1,6 +1,6 @@
-flask
+Flask==3.1.1
 scikit-learn==1.7.0
-pandas
-numpy
-joblib
-gunicorn
+pandas==2.2.2
+numpy==2.0.2  # זה שונה ממה שהמלצתי קודם, אבל זו הגרסה בפועל אצלך!
+joblib==1.5.1
+gunicorn==21.2.0
