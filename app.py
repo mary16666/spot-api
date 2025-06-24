@@ -20,13 +20,13 @@ try:
     reg_features = joblib.load(os.path.join(MODEL_DIR, 'parking_spots_reg_model_features_list.pkl'))
     clf_features = joblib.load(os.path.join(MODEL_DIR, 'main_clf_model_features_list.pkl'))
     
-    # טען את האנקודרים (רק את אלה שאכן שמרת)
-    # אלו אנקודרים מסוג LabelEncoder עבור פיצ'רים שקודדו כך
+    # טען את האנקודרים (רק את אלה שאכן שמרת בקולאב)
+    # אלו אנקודרים מסוג LabelEncoder עבור פיצ'רים שקודדו כך (יום בשבוע ושעת היום)
     day_encoder = joblib.load(os.path.join(MODEL_DIR, 'day_of_week_encoder.pkl'))
     time_encoder = joblib.load(os.path.join(MODEL_DIR, 'time_of_day_encoder.pkl'))
     
     # אין צורך לטעון city_encoder ו-parking_encoder אם השתמשת ב-pd.get_dummies()
-    # עבור קידוד One-Hot של עיר ושם חניה. אנו נבנה אותם באופן דינמי.
+    # עבור קידוד One-Hot של עיר ושם חניה. הם נוצרים באופן דינמי בבניית הפיצ'רים.
 
     # טען את טבלת פרטי החניונים הסטטיים
     static_data = pd.read_csv(os.path.join(MODEL_DIR, 'parking_static_data.csv'))
@@ -41,12 +41,12 @@ except Exception as e:
 
 def get_time_features():
     """
-    פונקציה זו מחשבת את הפיצ'רים הקשורים לזמן (יום בשבוע ושעה ביום)
+    פונקציה זו מחשבת את הפיצ'רים הקשורים לזמן (יום בשבוע ושעה ביום נוכחיים)
     ומקודדת אותם באמצעות האנקודרים שנטענו.
     """
     now = datetime.now()
     hour = now.hour
-    weekday = now.weekday()  # 0=Monday, ..., 6=Sunday
+    weekday = now.weekday()  # 0=Monday (שני), ..., 6=Sunday (ראשון)
 
     # קידוד שעת היום לקטגוריה: בוקר, צהריים, ערב
     if 6 <= hour < 12:
@@ -63,15 +63,15 @@ def get_time_features():
     except ValueError as e:
         # טיפול במקרה של ערך שלא נראה ע"י האנקודר באימון
         print(f"Warning: day_encoder could not transform weekday {weekday}. Error: {e}")
-        # במקרה כזה, אפשר להחזיר ערך ברירת מחדל או לטפל אחרת
-        encoded_day = -1 # ערך שונה ממה שהמודל ציפה, עלול לגרום לניבוי שגוי
+        # במקרה כזה, אפשר להחזיר ערך ברירת מחדל או לטפל אחרת (לדוגמה, 0 אם הוא לא קיים)
+        encoded_day = 0 # הגדר ערך ברירת מחדל בטוח אם לא נמצא
         
     try:
         encoded_time = time_encoder.transform([[time_of_day_category]])[0][0]
     except ValueError as e:
         # טיפול במקרה של ערך שלא נראה ע"י האנקודר באימון
         print(f"Warning: time_encoder could not transform time_of_day_category {time_of_day_category}. Error: {e}")
-        encoded_time = -1 # ערך שונה ממה שהמודל ציפה
+        encoded_time = 0 # הגדר ערך ברירת מחדל בטוח אם לא נמצא
 
     return encoded_day, encoded_time
 
@@ -92,13 +92,16 @@ def predict():
             return jsonify({'error': 'יש לספק עיר ושם חניון.'}), 400
 
         # שליפת פרטי חניון מתוך טבלת המידע הסטטי
+        # חשוב: ודא ששמות העמודות כאן ('city', 'parking_name') תואמים בדיוק ל-CSV
         row = static_data[(static_data['city'] == city) & (static_data['parking_name'] == parking_name)]
         if row.empty:
             return jsonify({'error': 'חניון לא נמצא בטבלת הנתונים הסטטיים. ודא/י שהשם והעיר מדויקים.'}), 400
 
-        total_spots = row.iloc[0]['total_spots']
-        cost_status = row.iloc[0]['cost_status']
-        # parking_type = row.iloc[0]['parking_type'] # לא בשימוש ישיר במודלים, אבל אפשר לשלוף אם צריך
+        # *** תיקון כאן: שינוי מ-'total_spots' ל-'total_parking_spots' ***
+        total_parking_spots = row.iloc[0]['total_parking_spots'] 
+        # *** תיקון כאן: שינוי שם העמודה ל-combined_parking_cost_status ***
+        cost_status = row.iloc[0]['combined_parking_cost_status'] 
+        # parking_type_encoded = row.iloc[0]['parking_type_encoded'] # ניתן לשלוף אם יש צורך בהמשך
 
         # שליפת פיצ'רי זמן נוכחי
         encoded_day, encoded_time = get_time_features()
@@ -134,7 +137,8 @@ def predict():
         # חיזוי מספר המקומות הפנויים (מודל הרגרסיה)
         predicted_available_spots = reg_model.predict(reg_df)[0]
         predicted_available_spots = max(0, round(predicted_available_spots)) # ודא שהמספר לא שלילי ועגל אותו
-        predicted_available_spots = min(predicted_available_spots, total_spots) # ודא שלא יעלה על סך המקומות
+        # *** תיקון כאן: שינוי מ-'total_spots' ל-'total_parking_spots' ***
+        predicted_available_spots = min(predicted_available_spots, total_parking_spots) 
 
         # --- בניית הפיצ'רים למודל הסיווג (שלב 2) בצורה בטוחה ---
         # אתחול מילון עם כל הפיצ'רים של הסיווג וערך 0
@@ -144,7 +148,7 @@ def predict():
         clf_input_dict.update({
             'encoded_day_of_week': encoded_day,
             'encoded_time_of_day': encoded_time,
-            'combined_parking_cost_status': cost_status,
+            'combined_parking_cost_status': cost_status, # עדכון ה-cost_status המתוקן
             'encoded_abnormal_parking': 0, # ברירת מחדל
             'parking_spots_available_current': predicted_available_spots, # זהו החיזוי מהרגרסיה!
             'duration_minutes': data.get('duration_minutes', 30), # קבל מקלט או ברירת מחדל
